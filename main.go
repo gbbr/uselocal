@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -110,11 +109,8 @@ func patchmod(path string, mode fs.FileMode, cfg Config) error {
 	}
 	for _, rd := range cfg.Replace {
 		if *dropFlag {
-			for i, r := range f.Replace {
-				if r.Old.Path == rd.From {
-					fmt.Println(r.Old.Path)
-					f.Replace[i] = &modfile.Replace{}
-				}
+			if err := f.DropReplace(rd.From, ""); err != nil {
+				return err
 			}
 		} else {
 			if err := f.AddReplace(rd.From, "", rd.To, ""); err != nil {
