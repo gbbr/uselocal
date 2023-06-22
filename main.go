@@ -47,6 +47,13 @@ func NewConfig(path string) (Config, error) {
 		}
 		cfg.abs[v] = struct{}{}
 	}
+	for i, rd := range cfg.Replace {
+		v, err := filepath.Abs(rd.To)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Replace[i].To = v
+	}
 	return cfg, nil
 }
 
