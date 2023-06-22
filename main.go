@@ -11,25 +11,39 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-var dropFlag = flag.Bool("drop", false, "drops replace directives specifies in configuration file")
+// dropFlag specifies that the replace directives should be dropped, instead of added.
+var dropFlag = flag.Bool("drop", false, "drops the replace directives specified in the configuration file")
 
+// Config specifies the configuration for uselocal.
 type Config struct {
-	Targets []string            `yaml:"targets"`
+	// Targets specifies a list of target sub-folders where go.mod files
+	// should be looked for.
+	Targets []string `yaml:"targets"`
+
+	// Replace specifies the set of replace directives to apply.
 	Replace []ReplaceDirectives `yaml:"replace"`
 
-	abs map[string]struct{} // filepath.Abs of Targets
+	// abs specifies an easy lookup method for targets. Its keys are
+	// the same as Targets, but as absolute paths.
+	abs map[string]struct{}
 }
 
+// HasTarget reports whether the given absolute path exists in the configuration targets.
 func (c *Config) HasTarget(abspath string) bool {
 	_, ok := c.abs[abspath]
 	return ok
 }
 
+// ReplaceDirectives specifies a replace directive.
 type ReplaceDirectives struct {
+	// From specifies the module that should be replaced.
 	From string `yaml:"from"`
-	To   string `yaml:"to"`
+	// To specifies the path that it should be replaced with.
+	To string `yaml:"to"`
 }
 
+// NewConfig creates and returns a new configuration from the YAML file based at path,
+// along with any errors occurred.
 func NewConfig(path string) (Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -48,6 +62,7 @@ func NewConfig(path string) (Config, error) {
 		cfg.abs[v] = struct{}{}
 	}
 	for i, rd := range cfg.Replace {
+		// rewrite target paths because relative ones will not apply in subfolders
 		v, err := filepath.Abs(rd.To)
 		if err != nil {
 			return cfg, err
@@ -72,12 +87,13 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if err := scanFiles(cwd, cfg); err != nil {
+	if err := rewriteModFiles(cwd, cfg); err != nil {
 		fatal(err)
 	}
 }
 
-func scanFiles(path string, cfg Config) error {
+// rewriteModFiles rewrites all go.mod files existing in path based on the given config.
+func rewriteModFiles(path string, cfg Config) error {
 	des, err := os.ReadDir(path)
 	if err != nil {
 		return err
@@ -85,26 +101,33 @@ func scanFiles(path string, cfg Config) error {
 	for _, de := range des {
 		name := de.Name()
 		fullpath := filepath.Join(path, name)
-		if filepath.Base(name) == "go.mod" {
-			if cfg.HasTarget(filepath.Dir(fullpath)) {
-				inf, err := de.Info()
-				if err != nil {
-					return err
-				}
-				if err := patchmod(fullpath, inf.Mode(), cfg); err != nil {
-					return err
-				}
-			}
-		}
 		if de.IsDir() {
-			if err := scanFiles(fullpath, cfg); err != nil {
+			// recursively progress into all subfolders
+			if err := rewriteModFiles(fullpath, cfg); err != nil {
 				return err
 			}
+		}
+		if filepath.Base(name) != "go.mod" {
+			// we only care about go.mod files
+			continue
+		}
+		if !cfg.HasTarget(filepath.Dir(fullpath)) {
+			// ...that are specified as targets
+			continue
+		}
+		inf, err := de.Info()
+		if err != nil {
+			return err
+		}
+		if err := patchmod(fullpath, inf.Mode(), cfg); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// patchmod patches the go.mod file found at path, using the given config and file mode.
+// Any error is returned.
 func patchmod(path string, mode fs.FileMode, cfg Config) error {
 	slurp, err := os.ReadFile(path)
 	if err != nil {
