@@ -11,6 +11,10 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// defaultConfigFile specifies the default location of the config file.
+// It can be overridden using the USELOCAL environment variable.
+const defaultConfigFile = "./.uselocal.yaml"
+
 // dropFlag specifies that the replace directives should be dropped, instead of added.
 var dropFlag = flag.Bool("drop", false, "drops the replace directives specified in the configuration file")
 
@@ -75,7 +79,7 @@ func NewConfig(path string) (Config, error) {
 func main() {
 	flag.Parse()
 	fatal := func(err error) { log.Fatal(err) }
-	file := "./.uselocal.yaml"
+	file := defaultConfigFile
 	if v, ok := os.LookupEnv("USELOCAL"); ok {
 		file = v
 	}
