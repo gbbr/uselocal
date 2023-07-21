@@ -2,11 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/go-playground/validator"
 	"golang.org/x/mod/modfile"
 	"gopkg.in/yaml.v2"
 )
@@ -22,14 +24,20 @@ var dropFlag = flag.Bool("drop", false, "drops the replace directives specified 
 type Config struct {
 	// Targets specifies a list of target sub-folders where go.mod files
 	// should be looked for.
-	Targets []string `yaml:"targets"`
+	Targets []string `yaml:"targets" validate:"required,dive,does_exist"`
 
 	// Replace specifies the set of replace directives to apply.
-	Replace []ReplaceDirectives `yaml:"replace"`
+	Replace []ReplaceDirectives `yaml:"replace" validate:"required,dive"`
 
 	// abs specifies an easy lookup method for targets. Its keys are
 	// the same as Targets, but as absolute paths.
 	abs map[string]struct{}
+}
+
+// doesExists reports whether the given path exists.
+func doesExists(fl validator.FieldLevel) bool {
+	_, err := os.Stat(fl.Field().String())
+	return err == nil
 }
 
 // HasTarget reports whether the given absolute path exists in the configuration targets.
@@ -41,9 +49,9 @@ func (c *Config) HasTarget(abspath string) bool {
 // ReplaceDirectives specifies a replace directive.
 type ReplaceDirectives struct {
 	// From specifies the module that should be replaced.
-	From string `yaml:"from"`
+	From string `yaml:"from" validate:"required"`
 	// To specifies the path that it should be replaced with.
-	To string `yaml:"to"`
+	To string `yaml:"to" validate:"required,does_exist"`
 }
 
 // NewConfig creates and returns a new configuration from the YAML file based at path,
@@ -63,6 +71,7 @@ func NewConfig(path string) (Config, error) {
 		if err != nil {
 			return cfg, err
 		}
+
 		cfg.abs[v] = struct{}{}
 	}
 	for i, rd := range cfg.Replace {
@@ -86,6 +95,14 @@ func main() {
 	cfg, err := NewConfig(file)
 	if err != nil {
 		fatal(err)
+	}
+	validate := validator.New()
+	validate.RegisterValidation("does_exist", doesExists)
+	err = validate.Struct(cfg)
+	if err != nil {
+		for _, err := range err.(validator.ValidationErrors) {
+			fmt.Printf("Warn: %s\n", err)
+		}
 	}
 	cwd, err := filepath.Abs(".")
 	if err != nil {
